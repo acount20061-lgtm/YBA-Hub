@@ -1,8 +1,8 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "UA Killer Hub | YBA (Anti-Trap)",
-   LoadingTitle = "Завантаження захисту від пасток...",
+   Name = "UA Killer Hub | YBA (Ultimate Bypass)",
+   LoadingTitle = "Завантаження фінальної версії...",
    LoadingSubtitle = "by acount20061-lgtm",
    ConfigurationSaving = { Enabled = false }
 })
@@ -35,8 +35,7 @@ _G.ItemESP = false
 _G.StepDistance = 25  
 _G.StepDelay = 0.04   
 
-local itemFails = {}
-local blacklistedItems = {}
+local bannedCoordinates = {} -- База забанених пасток/координат
 local espObjects = {}
 local lastPickedCFrame = nil 
 
@@ -66,13 +65,20 @@ _G.SelectedItems = {
     ["Zeppeli's Hat"] = false
 }
 
--- Розумний ESP (малює тільки якщо є реальна деталь)
-local function applyESP(parent, name)
-    if espObjects[parent] then return end
-    local part = parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart")
-    
-    -- ЗАХИСТ: якщо деталі немає або вона повністю прозора/невидима — це фейк розробників
-    if not part or part.Transparency == 1 or blacklistedItems[parent] then return end
+-- Функція перевірки, чи координата не забанена
+local function isCoordinateBanned(pos)
+    for _, bannedPos in ipairs(bannedCoordinates) do
+        if (pos - bannedPos).Magnitude < 3 then -- якщо точка ближче ніж 3 studs до пастки
+            return true
+        end
+    end
+    return false
+end
+
+-- Розумний ESP (Працює на всю карту)
+local function applyESP(part, name)
+    if espObjects[part] then return end
+    if not part or part.Transparency == 1 or isCoordinateBanned(part.Position) then return end
 
     local bgui = Instance.new("BillboardGui")
     bgui.Name = "YBA_Item_ESP"
@@ -91,13 +97,14 @@ local function applyESP(parent, name)
     text.TextStrokeTransparency = 0 
 
     bgui.Parent = part
-    espObjects[parent] = bgui
+    espObjects[part] = bgui
 end
 
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(0.7)
         if _G.ItemESP then
+            -- Використовуємо GetDescendants на всьому Workspace для глобального пошуку
             for _, desc in pairs(workspace:GetDescendants()) do
                 if desc:IsA("ProximityPrompt") and desc.Parent then
                     local parent = desc.Parent
@@ -109,12 +116,15 @@ task.spawn(function()
                     elseif desc.ObjectText and _G.SelectedItems[desc.ObjectText] ~= nil then itemName = desc.ObjectText end
 
                     if itemName ~= "" then
-                        applyESP(parent, itemName)
+                        local targetPart = parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart") or (model and model:FindFirstChildWhichIsA("BasePart"))
+                        if targetPart and targetPart.Transparency < 1 and not isCoordinateBanned(targetPart.Position) then
+                            applyESP(targetPart, itemName)
+                        end
                     end
                 end
             end
         else
-            for parent, gui in pairs(espObjects) do
+            for part, gui in pairs(espObjects) do
                 if gui then gui:Destroy() end
             end
             table.clear(espObjects)
@@ -122,6 +132,7 @@ task.spawn(function()
     end
 end)
 
+-- Покроковий рух
 local function antiKickMove(targetCFrame)
     local char = game.Players.LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -171,7 +182,7 @@ FarmTab:CreateSlider({
 })
 
 FarmTab:CreateToggle({
-   Name = "Увімкнути Item ESP (Підсвітка)",
+   Name = "Увімкнути Глобальний ESP (Вся карта)",
    CurrentValue = false,
    Callback = function(Value)
        _G.ItemESP = Value
@@ -179,7 +190,7 @@ FarmTab:CreateToggle({
 })
 
 FarmTab:CreateToggle({
-   Name = "Увімкнути Автофарм (Anti-Trap)",
+   Name = "Увімкнути Автофарм (Глобальний пошук)",
    CurrentValue = false,
    Flag = "ItemFarmToggle",
    Callback = function(Value)
@@ -203,41 +214,36 @@ FarmTab:CreateToggle({
                    local targetItem = nil
                    local shortestDistance = math.huge
                    
+                   -- Глобальний збір через GetDescendants
                    for _, desc in pairs(workspace:GetDescendants()) do
                        if not _G.ItemFarm then break end
-                       if blacklistedItems[desc] then continue end
                        
-                       if desc:IsA("ProximityPrompt") then
+                       if desc:IsA("ProximityPrompt") and desc.Parent then
                            local parent = desc.Parent
-                           if parent and not blacklistedItems[parent] then
-                               local model = parent:IsA("Model") and parent or parent.Parent
+                           local model = parent:IsA("Model") and parent or parent.Parent
+                           
+                           -- Фільтруємо NPC
+                           if model and model:IsA("Model") and (model:FindFirstChildOfClass("Humanoid") or parent:FindFirstChildOfClass("Humanoid")) then
+                               continue
+                           end
+                           
+                           local itemName = ""
+                           if _G.SelectedItems[parent.Name] ~= nil then itemName = parent.Name
+                           elseif model and _G.SelectedItems[model.Name] ~= nil then itemName = model.Name
+                           elseif desc.ObjectText and _G.SelectedItems[desc.ObjectText] ~= nil then itemName = desc.ObjectText end
+                           
+                           if itemName ~= "" then
+                               local shouldPickup = not anySelected or _G.SelectedItems[itemName]
                                
-                               if model and model:IsA("Model") and (model:FindFirstChildOfClass("Humanoid") or parent:FindFirstChildOfClass("Humanoid")) then
-                                   continue
-                               end
-                               
-                               local itemName = ""
-                               if _G.SelectedItems[parent.Name] ~= nil then itemName = parent.Name
-                               elseif model and _G.SelectedItems[model.Name] ~= nil then itemName = model.Name
-                               elseif desc.ObjectText and _G.SelectedItems[desc.ObjectText] ~= nil then itemName = desc.ObjectText end
-                               
-                               if itemName ~= "" then
-                                   local shouldPickup = not anySelected or _G.SelectedItems[itemName]
+                               if shouldPickup then
+                                   local targetPart = parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart") or (model and model:FindFirstChildWhichIsA("BasePart"))
                                    
-                                   if shouldPickup then
-                                       local targetPart = parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart") or (model and model:FindFirstChildWhichIsA("BasePart"))
-                                       
-                                       -- ДОДАТКОВА ПЕРЕВІРКА НА ПАСТКУ: перевіряємо прозорість та наявність фізичної деталі
-                                       if targetPart and targetPart.Transparency < 1 then
-                                           local dist = (hrp.Position - targetPart.Position).Magnitude
-                                           if dist < shortestDistance then
-                                               shortestDistance = dist
-                                               targetItem = {prompt = desc, part = targetPart, parent = parent}
-                                           end
-                                       else
-                                           -- Якщо це фейковий напис без фізичного предмета — блеклістимо його одразу
-                                           blacklistedItems[desc] = true
-                                           blacklistedItems[parent] = true
+                                   -- НАДВІДПОВІДАЛЬНА ПЕРЕВІРКА: предмет є матеріальним, видимим і його координати не в бані
+                                   if targetPart and targetPart.Transparency < 1 and not isCoordinateBanned(targetPart.Position) then
+                                       local dist = (hrp.Position - targetPart.Position).Magnitude
+                                       if dist < shortestDistance then
+                                           shortestDistance = dist
+                                           targetItem = {prompt = desc, part = targetPart, parent = parent}
                                        end
                                    end
                                end
@@ -247,33 +253,35 @@ FarmTab:CreateToggle({
                    
                    if targetItem then
                        local targetCFrame = targetItem.part.CFrame * CFrame.new(0, 0.5, 0)
+                       local targetPos = targetItem.part.Position
+                       
                        antiKickMove(targetCFrame)
-                       task.wait(0.1)
+                       task.wait(0.12)
                        
                        targetItem.prompt.RequiresLineOfSight = false
                        fireproximityprompt(targetItem.prompt)
                        task.wait(0.3) 
                        
-                       lastPickedCFrame = targetCFrame
-                       
-                       -- Якщо після спроби підбору напис все ще висить — кидаємо в бан
+                       -- ЖОРСТКИЙ БАН КООРДИНАТ: Якщо після кліку предмет лишився — банимо цю точку назавжди для цієї сесії
                        if targetItem.prompt and targetItem.prompt:IsDescendantOf(workspace) then
-                           itemFails[targetItem.prompt] = (itemFails[targetItem.prompt] or 0) + 1
-                           if itemFails[targetItem.prompt] >= 2 then
-                               blacklistedItems[targetItem.prompt] = true
-                               blacklistedItems[targetItem.parent] = true
-                               if espObjects[targetItem.parent] then
-                                   espObjects[targetItem.parent]:Destroy()
-                                   espObjects[targetItem.parent] = nil
-                               end
-                               task.delay(30, function()
-                                   blacklistedItems[targetItem.prompt] = nil
-                                   blacklistedItems[targetItem.parent] = nil
-                                   itemFails[targetItem.prompt] = 0
-                               end)
+                           table.insert(bannedCoordinates, targetPos) -- додаємо точні координати пастки в бан
+                           
+                           if espObjects[targetItem.part] then
+                               espObjects[targetItem.part]:Destroy()
+                               espObjects[targetItem.part] = nil
                            end
+                           
+                           -- Негайно тікаємо на безпечне місце
+                           if lastPickedCFrame then
+                               antiKickMove(lastPickedCFrame)
+                           end
+                       else
+                           -- Якщо все гуд, оновлюємо останню легітимну позицію
+                           lastPickedCFrame = targetCFrame
                        end
                    else
+                       -- Якщо предметів реально взагалі немає на всій карті (навіть прихованих) — 
+                       -- спокійно стоїмо на місці останнього збору і не сіпаємося, чекаючи спавну
                        if lastPickedCFrame then
                            local distToLast = (hrp.Position - lastPickedCFrame.Position).Magnitude
                            if distToLast > 5 then
