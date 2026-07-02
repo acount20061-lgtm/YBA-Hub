@@ -10,7 +10,6 @@ local Window = Rayfield:CreateWindow({
 local MainTab = Window:CreateTab("Головна", 4483362458)
 local FarmTab = Window:CreateTab("Автофарм", 4483362534)
 
--- Слайдер стрибка
 local JP_Value = 50
 task.spawn(function()
     while task.wait(0.1) do
@@ -31,10 +30,9 @@ MainTab:CreateSlider({
    end,
 })
 
--- Налаштування фарму
 _G.ItemFarm = false
-_G.CollectionMode = "Back & Forth" -- Дефолтний режим зі скриншоту
-_G.SafePlaceCFrame = CFrame.new(0, 500, 0) -- Початкова точка високо в небі
+_G.CollectionMode = "Back & Forth"
+_G.CustomSafePlace = nil -- Сюди запишеться позиція, якщо натиснеш кнопку
 
 _G.SelectedItems = {
     ["Ancient Scroll"] = false,
@@ -62,19 +60,17 @@ _G.SelectedItems = {
     ["Zeppeli's Hat"] = false
 }
 
--- Кнопка для встановлення Safe Place
 FarmTab:CreateButton({
    Name = "Встановити безпечне місце (Safe Place Position)",
    Callback = function()
        local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
        if hrp then
-           _G.SafePlaceCFrame = hrp.CFrame
-           Rayfield:Notify({Title = "Успішно!", Content = "Позицію для сховища збережено!", Duration = 3})
+           _G.CustomSafePlace = hrp.CFrame
+           Rayfield:Notify({Title = "UA Hub", Content = "Кастомну позицію сховища збережено!", Duration = 3})
        end
    end,
 })
 
--- Вибір режиму як на скриншоті "Знімок екрана 2026-07-02 164344.png"
 FarmTab:CreateDropdown({
    Name = "Collection Mode",
    Options = {"Back & Forth", "Batch Collect"},
@@ -85,7 +81,6 @@ FarmTab:CreateDropdown({
    end,
 })
 
--- Основна функція миттєвого телепорту
 local function instantTeleport(targetCFrame)
     local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if hrp then
@@ -96,7 +91,7 @@ local function instantTeleport(targetCFrame)
 end
 
 FarmTab:CreateToggle({
-   Name = "Увімкнути Автофарм (Safe Mode)",
+   Name = "Увімкнути Автофарм",
    CurrentValue = false,
    Flag = "ItemFarmToggle",
    Callback = function(Value)
@@ -105,56 +100,76 @@ FarmTab:CreateToggle({
            task.spawn(function()
                while _G.ItemFarm do
                    local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                   if not hrp then task.wait(1) continue end
+                   if not hrp then task.wait(0.5) continue end
 
-                   -- Перевіряємо фільтри
+                   -- Визначаємо безпечну точку (кастомна або автоматично +250 вгору)
+                   local currentSafePlace = _G.CustomSafePlace or (hrp.CFrame * CFrame.new(0, 250, 0))
+
                    local anySelected = false
                    for _, isSelected in pairs(_G.SelectedItems) do
                        if isSelected then anySelected = true; break end
                    end
                    
-                   -- Збираємо список предметів на карті
                    local validItems = {}
-                   for _, v in pairs(workspace:GetChildren()) do
-                       if _G.SelectedItems[v.Name] ~= nil then
-                           local shouldPickup = not anySelected or _G.SelectedItems[v.Name]
-                           if shouldPickup then
-                               local prompt = v:FindFirstChildOfClass("ProximityPrompt") or v:FindFirstChild("Handle") and v.Handle:FindFirstChildOfClass("ProximityPrompt")
-                               if not prompt then
-                                   for _, desc in pairs(v:GetDescendants()) do
-                                       if desc:IsA("ProximityPrompt") then prompt = desc; break end
-                                   end
+                   
+                   -- Повний глибокий пошук по карті
+                   for _, desc in pairs(workspace:GetDescendants()) do
+                       if not _G.ItemFarm then break end
+                       
+                       if desc:IsA("ProximityPrompt") then
+                           local parent = desc.Parent
+                           if parent then
+                               local model = parent:IsA("Model") and parent or parent.Parent
+                               
+                               -- ЖОРСТКИЙ ФІЛЬТР: якщо це NPC або інший гравець (має Humanoid) — ігноруємо повністю!
+                               if model and model:IsA("Model") and (model:FindFirstChildOfClass("Humanoid") or parent:FindFirstChildOfClass("Humanoid")) then
+                                   continue
                                end
-                               local targetPart = v:IsA("BasePart") and v or v:FindFirstChild("Handle") or (prompt and prompt.Parent)
-                               if prompt and targetPart then
-                                   table.insert(validItems, {prompt = prompt, part = targetPart})
+                               
+                               -- Визначаємо назву ітема за трьома параметрами
+                               local itemName = ""
+                               if _G.SelectedItems[parent.Name] ~= nil then
+                                   itemName = parent.Name
+                               elseif model and _G.SelectedItems[model.Name] ~= nil then
+                                   itemName = model.Name
+                               elseif desc.ObjectText and _G.SelectedItems[desc.ObjectText] ~= nil then
+                                   itemName = desc.ObjectText
+                               end
+                               
+                               if itemName ~= "" then
+                                   local shouldPickup = not anySelected or _G.SelectedItems[itemName]
+                                   if shouldPickup then
+                                       local targetPart = parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart") or (model and model:FindFirstChildWhichIsA("BasePart"))
+                                       if targetPart then
+                                           table.insert(validItems, {prompt = desc, part = targetPart})
+                                       end
+                                   end
                                end
                            end
                        end
                    end
 
-                   -- Логіка збору предметів
+                   -- Процес збору предметів
                    if #validItems > 0 then
                        if _G.CollectionMode == "Back & Forth" then
                            for _, item in ipairs(validItems) do
                                if not _G.ItemFarm then break end
                                
-                               -- ТП до ітема
+                               -- Телепорт до предмета
                                instantTeleport(item.part.CFrame * CFrame.new(0, 1.5, 0))
-                               task.wait(0.15)
+                               task.wait(0.12)
                                
-                               -- Підбір
+                               -- Миттєвий підбір без перевірки стін (Bypass)
                                item.prompt.RequiresLineOfSight = false
                                fireproximityprompt(item.prompt)
-                               task.wait(0.1)
+                               task.wait(0.08)
                                
                                -- Повернення в безпечну зону
-                               instantTeleport(_G.SafePlaceCFrame)
+                               instantTeleport(currentSafePlace)
                                hrp.Anchored = true
-                               task.wait(0.4) -- Кулдаун для безпеки
+                               task.wait(0.3)
                            end
                        elseif _G.CollectionMode == "Batch Collect" then
-                           -- Швидкий проліт по всіх ітемах за раз
                            for _, item in ipairs(validItems) do
                                if not _G.ItemFarm then break end
                                instantTeleport(item.part.CFrame * CFrame.new(0, 1.5, 0))
@@ -163,18 +178,17 @@ FarmTab:CreateToggle({
                                fireproximityprompt(item.prompt)
                                task.wait(0.05)
                            end
-                           -- Повернення після пачки
-                           instantTeleport(_G.SafePlaceCFrame)
+                           instantTeleport(currentSafePlace)
                            hrp.Anchored = true
                        end
                    else
-                       -- Якщо предметів немає, сидимо в сейф-зоні заморожені
-                       instantTeleport(_G.SafePlaceCFrame)
+                       -- Якщо предметів немає, сидимо заморожені в безпечній точці
+                       instantTeleport(currentSafePlace)
                        hrp.Anchored = true
                        task.wait(1)
                    end
                end
-               -- Якщо вимкнули фарм — розморожуємо персонажа
+               -- Розморозка після вимкнення скрипта
                local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                if hrp then hrp.Anchored = false end
            end)
