@@ -10,6 +10,7 @@ local Window = Rayfield:CreateWindow({
 local MainTab = Window:CreateTab("Головна", 4483362458)
 local FarmTab = Window:CreateTab("Автофарм", 4483362534)
 
+-- Налаштування висоти стрибка
 local JP_Value = 50
 task.spawn(function()
     while task.wait(0.1) do
@@ -30,9 +31,9 @@ MainTab:CreateSlider({
    end,
 })
 
+-- Логіка автофарму
 _G.ItemFarm = false
-_G.CollectionMode = "Back & Forth"
-_G.CustomSafePlace = nil -- Сюди запишеться позиція, якщо натиснеш кнопку
+_G.FarmSpeed = 120 -- Швидкість польоту за замовчуванням
 
 _G.SelectedItems = {
     ["Ancient Scroll"] = false,
@@ -60,35 +61,33 @@ _G.SelectedItems = {
     ["Zeppeli's Hat"] = false
 }
 
-FarmTab:CreateButton({
-   Name = "Встановити безпечне місце (Safe Place Position)",
-   Callback = function()
-       local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-       if hrp then
-           _G.CustomSafePlace = hrp.CFrame
-           Rayfield:Notify({Title = "UA Hub", Content = "Кастомну позицію сховища збережено!", Duration = 3})
-       end
-   end,
-})
-
-FarmTab:CreateDropdown({
-   Name = "Collection Mode",
-   Options = {"Back & Forth", "Batch Collect"},
-   CurrentOption = {"Back & Forth"},
-   MultipleOptions = false,
-   Callback = function(Option)
-       _G.CollectionMode = Option[1]
-   end,
-})
-
-local function instantTeleport(targetCFrame)
+-- Функція плавного переміщення до предмета
+local function tweenTo(cframe)
     local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if hrp then
-        hrp.Anchored = false
-        hrp.CFrame = targetCFrame
-        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+        local distance = (hrp.Position - cframe.Position).Magnitude
+        if distance < 2 then 
+            hrp.CFrame = cframe
+            return 
+        end
+        local tweenService = game:GetService("TweenService")
+        local tweenInfo = TweenInfo.new(distance / _G.FarmSpeed, Enum.EasingStyle.Linear)
+        local tween = tweenService:Create(hrp, tweenInfo, {CFrame = cframe})
+        tween:Play()
+        tween.Completed:Wait()
     end
 end
+
+-- Слайдер швидкості польоту
+FarmTab:CreateSlider({
+   Name = "Швидкість польоту (Tween Speed)",
+   Range = {50, 300},
+   Increment = 10,
+   CurrentValue = 120,
+   Callback = function(Value)
+       _G.FarmSpeed = Value
+   end,
+})
 
 FarmTab:CreateToggle({
    Name = "Увімкнути Автофарм",
@@ -99,20 +98,15 @@ FarmTab:CreateToggle({
        if Value then
            task.spawn(function()
                while _G.ItemFarm do
-                   local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                   if not hrp then task.wait(0.5) continue end
-
-                   -- Визначаємо безпечну точку (кастомна або автоматично +250 вгору)
-                   local currentSafePlace = _G.CustomSafePlace or (hrp.CFrame * CFrame.new(0, 250, 0))
-
+                   local itemFound = false
+                   
+                   -- Перевірка фільтрів предметів
                    local anySelected = false
                    for _, isSelected in pairs(_G.SelectedItems) do
                        if isSelected then anySelected = true; break end
                    end
                    
-                   local validItems = {}
-                   
-                   -- Повний глибокий пошук по карті
+                   -- Глибокий пошук по карті з фільтрацією
                    for _, desc in pairs(workspace:GetDescendants()) do
                        if not _G.ItemFarm then break end
                        
@@ -121,12 +115,12 @@ FarmTab:CreateToggle({
                            if parent then
                                local model = parent:IsA("Model") and parent or parent.Parent
                                
-                               -- ЖОРСТКИЙ ФІЛЬТР: якщо це NPC або інший гравець (має Humanoid) — ігноруємо повністю!
+                               -- ФІЛЬТР NPC ТА ГРАВЦІВ: якщо є Humanoid — це не предмет, пропускаємо!
                                if model and model:IsA("Model") and (model:FindFirstChildOfClass("Humanoid") or parent:FindFirstChildOfClass("Humanoid")) then
                                    continue
                                end
                                
-                               -- Визначаємо назву ітема за трьома параметрами
+                               -- Визначаємо назву предмета
                                local itemName = ""
                                if _G.SelectedItems[parent.Name] ~= nil then
                                    itemName = parent.Name
@@ -136,61 +130,36 @@ FarmTab:CreateToggle({
                                    itemName = desc.ObjectText
                                end
                                
+                               -- Якщо предмет підходить під критерії
                                if itemName ~= "" then
                                    local shouldPickup = not anySelected or _G.SelectedItems[itemName]
+                                   
                                    if shouldPickup then
                                        local targetPart = parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart") or (model and model:FindFirstChildWhichIsA("BasePart"))
+                                       
                                        if targetPart then
-                                           table.insert(validItems, {prompt = desc, part = targetPart})
+                                           itemFound = true
+                                           
+                                           -- Летимо безпосередньо до предмета
+                                           tweenTo(targetPart.CFrame * CFrame.new(0, 1.5, 0))
+                                           task.wait(0.1)
+                                           
+                                           -- Підбираємо
+                                           desc.RequiresLineOfSight = false
+                                           fireproximityprompt(desc)
+                                           task.wait(0.2) -- невелика затримка, щоб предмет зник з карти
                                        end
                                    end
                                end
                            end
                        end
                    end
-
-                   -- Процес збору предметів
-                   if #validItems > 0 then
-                       if _G.CollectionMode == "Back & Forth" then
-                           for _, item in ipairs(validItems) do
-                               if not _G.ItemFarm then break end
-                               
-                               -- Телепорт до предмета
-                               instantTeleport(item.part.CFrame * CFrame.new(0, 1.5, 0))
-                               task.wait(0.12)
-                               
-                               -- Миттєвий підбір без перевірки стін (Bypass)
-                               item.prompt.RequiresLineOfSight = false
-                               fireproximityprompt(item.prompt)
-                               task.wait(0.08)
-                               
-                               -- Повернення в безпечну зону
-                               instantTeleport(currentSafePlace)
-                               hrp.Anchored = true
-                               task.wait(0.3)
-                           end
-                       elseif _G.CollectionMode == "Batch Collect" then
-                           for _, item in ipairs(validItems) do
-                               if not _G.ItemFarm then break end
-                               instantTeleport(item.part.CFrame * CFrame.new(0, 1.5, 0))
-                               task.wait(0.1)
-                               item.prompt.RequiresLineOfSight = false
-                               fireproximityprompt(item.prompt)
-                               task.wait(0.05)
-                           end
-                           instantTeleport(currentSafePlace)
-                           hrp.Anchored = true
-                       end
-                   else
-                       -- Якщо предметів немає, сидимо заморожені в безпечній точці
-                       instantTeleport(currentSafePlace)
-                       hrp.Anchored = true
-                       task.wait(1)
+                   
+                   -- Якщо на карті нічого немає, просто чекаємо на спавн
+                   if not itemFound then
+                       task.wait(0.5)
                    end
                end
-               -- Розморозка після вимкнення скрипта
-               local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-               if hrp then hrp.Anchored = false end
            end)
        end
    end,
