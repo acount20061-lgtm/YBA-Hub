@@ -1,15 +1,16 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "UA Killer Hub | YBA",
-   LoadingTitle = "Завантаження скрипта...",
+   Name = "UA Killer Hub | YBA (Anti-Kick)",
+   LoadingTitle = "Завантаження обходу...",
    LoadingSubtitle = "by acount20061-lgtm",
    ConfigurationSaving = { Enabled = false }
-})
+ })
 
 local MainTab = Window:CreateTab("Головна", 4483362458)
 local FarmTab = Window:CreateTab("Автофарм", 4483362534)
 
+-- Налаштування стрибка
 local JP_Value = 50
 task.spawn(function()
     while task.wait(0.1) do
@@ -30,8 +31,10 @@ MainTab:CreateSlider({
    end,
 })
 
+-- Глобальні налаштування обходу античиту
 _G.ItemFarm = false
-_G.FarmSpeed = 120 
+_G.StepDistance = 15  -- Довжина одного мікро-телепорту
+_G.StepDelay = 0.05   -- Затримка між кроками (в секундах)
 
 _G.SelectedItems = {
     ["Ancient Scroll"] = false,
@@ -59,45 +62,64 @@ _G.SelectedItems = {
     ["Zeppeli's Hat"] = false
 }
 
--- Функція ідеально плавного польоту без тряски та провалювання під карту
-local function smoothTween(targetCFrame)
+-- Функція покрокового переміщення для обходу античиту
+local function antiKickMove(targetCFrame)
     local char = game.Players.LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp then return end
     
-    if hrp and humanoid then
-        -- Вимикаємо фізику гуманоїда, щоб прибрати дьоргання
-        local oldPlatformStand = humanoid.PlatformStand
-        humanoid.PlatformStand = true
-        hrp.Anchored = true
-        
-        local distance = (hrp.Position - targetCFrame.Position).Magnitude
-        local tweenService = game:GetService("TweenService")
-        local tweenInfo = TweenInfo.new(distance / _G.FarmSpeed, Enum.EasingStyle.Linear)
-        
-        local tween = tweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
-        tween:Play()
-        tween.Completed:Wait()
-        
-        -- Повертаємо фізику назад після прильоту
-        hrp.Anchored = false
-        humanoid.PlatformStand = oldPlatformStand
+    local startPos = hrp.Position
+    local endPos = targetCFrame.Position
+    local distance = (startPos - endPos).Magnitude
+    
+    -- Рахуємо скільки мікро-кроків треба зробити
+    local steps = math.floor(distance / _G.StepDistance)
+    
+    if steps > 0 then
+        for i = 1, steps do
+            if not _G.ItemFarm then break end
+            
+            local alpha = i / steps
+            local nextPos = startPos:Lerp(endPos, alpha)
+            
+            -- Зміщуємо персонажа і скидаємо швидкість, щоб античит не думав що ми летимо
+            hrp.CFrame = CFrame.new(nextPos)
+            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            
+            task.wait(_G.StepDelay) -- мікро-пауза для обману сервера
+        end
+    end
+    
+    -- Фінальний точний телепорт на предмет
+    if _G.ItemFarm then
+        hrp.CFrame = targetCFrame
         hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
     end
 end
 
+-- Налаштування обходу в меню
 FarmTab:CreateSlider({
-   Name = "Швидкість польоту (Tween Speed)",
-   Range = {50, 300},
-   Increment = 10,
-   CurrentValue = 120,
+   Name = "Дистанція кроку (Step Distance)",
+   Range = {5, 40},
+   Increment = 1,
+   CurrentValue = 15,
    Callback = function(Value)
-       _G.FarmSpeed = Value
+       _G.StepDistance = Value
+   end,
+})
+
+FarmTab:CreateSlider({
+   Name = "Затримка кроку (Step Delay)",
+   Range = {0.01, 0.2},
+   Increment = 0.01,
+   CurrentValue = 0.05,
+   Callback = function(Value)
+       _G.StepDelay = Value
    end,
 })
 
 FarmTab:CreateToggle({
-   Name = "Увімкнути Автофарм",
+   Name = "Увімкнути Автофарм (Bypass Mode)",
    CurrentValue = false,
    Flag = "ItemFarmToggle",
    Callback = function(Value)
@@ -117,7 +139,7 @@ FarmTab:CreateToggle({
                    local targetItem = nil
                    local shortestDistance = math.huge
                    
-                   -- Пошук найближчого предмету (один цикл = один точковий політ)
+                   -- Пошук найближчого легітимного предмета
                    for _, desc in pairs(workspace:GetDescendants()) do
                        if not _G.ItemFarm then break end
                        
@@ -126,7 +148,7 @@ FarmTab:CreateToggle({
                            if parent then
                                local model = parent:IsA("Model") and parent or parent.Parent
                                
-                               -- Фільтр живих гравців та NPC
+                               -- Фільтр NPC та інших гравців
                                if model and model:IsA("Model") and (model:FindFirstChildOfClass("Humanoid") or parent:FindFirstChildOfClass("Humanoid")) then
                                    continue
                                end
@@ -154,16 +176,17 @@ FarmTab:CreateToggle({
                        end
                    end
                    
-                   -- Якщо знайшли найближчу ціль — летимо суто до неї
+                   -- Якщо знайшли предмет — рухаємося до нього кроками
                    if targetItem then
-                       smoothTween(targetItem.part.CFrame * CFrame.new(0, 1.5, 0))
+                       antiKickMove(targetItem.part.CFrame * CFrame.new(0, 1.5, 0))
                        task.wait(0.1)
                        
+                       -- Підбір предмета
                        targetItem.prompt.RequiresLineOfSight = false
                        fireproximityprompt(targetItem.prompt)
-                       task.wait(0.25) -- Час на те, щоб предмет зник з карти
+                       task.wait(0.3) -- Пауза, щоб сервер встиг зарахувати підбір предмета
                    else
-                       task.wait(0.5) -- Якщо предметів немає, просто чекаємо спавну
+                       task.wait(0.5)
                    end
                end
            end)
@@ -171,7 +194,7 @@ FarmTab:CreateToggle({
    end,
 })
 
-FarmTab:CreateLabel("Фільтр предметів (залиш пустим щоб брати все):")
+FarmTab:CreateLabel("Фільтр предметів:")
 
 local sortedItems = {}
 for k, _ in pairs(_G.SelectedItems) do table.insert(sortedItems, k) end
