@@ -1,16 +1,15 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "UA Killer Hub | YBA (Anti-Kick)",
-   LoadingTitle = "Завантаження обходу...",
+   Name = "UA Killer Hub | YBA (ESP & Stay Mode)",
+   LoadingTitle = "Завантаження скрипта з ESP...",
    LoadingSubtitle = "by acount20061-lgtm",
    ConfigurationSaving = { Enabled = false }
- })
+})
 
 local MainTab = Window:CreateTab("Головна", 4483362458)
 local FarmTab = Window:CreateTab("Автофарм", 4483362534)
 
--- Налаштування стрибка
 local JP_Value = 50
 task.spawn(function()
     while task.wait(0.1) do
@@ -31,10 +30,15 @@ MainTab:CreateSlider({
    end,
 })
 
--- Глобальні налаштування обходу античиту
 _G.ItemFarm = false
-_G.StepDistance = 15  -- Довжина одного мікро-телепорту
-_G.StepDelay = 0.05   -- Затримка між кроками (в секундах)
+_G.ItemESP = false
+_G.StepDistance = 25  
+_G.StepDelay = 0.04   
+
+local itemFails = {}
+local blacklistedItems = {}
+local espObjects = {}
+local lastPickedCFrame = nil -- Змінна для запам'ятовування останнього місця
 
 _G.SelectedItems = {
     ["Ancient Scroll"] = false,
@@ -62,7 +66,63 @@ _G.SelectedItems = {
     ["Zeppeli's Hat"] = false
 }
 
--- Функція покрокового переміщення для обходу античиту
+-- ФУНКЦІЯ СТВОРЕННЯ ESP (Підсвічування речей крізь стіни)
+local function applyESP(parent, name)
+    if espObjects[parent] then return end
+    local part = parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart")
+    if not part then return end
+
+    local bgui = Instance.new("BillboardGui")
+    bgui.Name = "YBA_Item_ESP"
+    bgui.AlwaysOnTop = true
+    bgui.Size = UDim2.new(0, 120, 0, 30)
+    bgui.Adornee = part
+
+    local text = Instance.new("TextLabel")
+    text.Parent = bgui
+    text.BackgroundTransparency = 1
+    text.Size = UDim2.new(1, 0, 1, 0)
+    text.Text = name
+    text.TextColor3 = Color3.fromRGB(0, 255, 255) -- Гарний бірюзовий колір
+    text.TextSize = 14
+    text.Font = Enum.Font.SourceSansBold
+    text.TextStrokeTransparency = 0 -- Чорна обводка літер для чіткості
+
+    bgui.Parent = part
+    espObjects[parent] = bgui
+end
+
+-- Потік для роботи ESP
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if _G.ItemESP then
+            for _, desc in pairs(workspace:GetDescendants()) do
+                if desc:IsA("ProximityPrompt") and desc.Parent then
+                    local parent = desc.Parent
+                    local model = parent:IsA("Model") and parent or parent.Parent
+                    
+                    local itemName = ""
+                    if _G.SelectedItems[parent.Name] ~= nil then itemName = parent.Name
+                    elseif model and _G.SelectedItems[model.Name] ~= nil then itemName = model.Name
+                    elseif desc.ObjectText and _G.SelectedItems[desc.ObjectText] ~= nil then itemName = desc.ObjectText end
+
+                    if itemName ~= "" then
+                        applyESP(parent, itemName)
+                    end
+                end
+            end
+        else
+            -- Очищення ESP якщо тумблер вимкнено
+            for parent, gui in pairs(espObjects) do
+                if gui then gui:Destroy() end
+            end
+            table.clear(espObjects)
+        end
+    end
+end)
+
+-- Покроковий плавний рух
 local function antiKickMove(targetCFrame)
     local char = game.Players.LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -71,38 +131,32 @@ local function antiKickMove(targetCFrame)
     local startPos = hrp.Position
     local endPos = targetCFrame.Position
     local distance = (startPos - endPos).Magnitude
-    
-    -- Рахуємо скільки мікро-кроків треба зробити
     local steps = math.floor(distance / _G.StepDistance)
     
     if steps > 0 then
         for i = 1, steps do
             if not _G.ItemFarm then break end
-            
             local alpha = i / steps
             local nextPos = startPos:Lerp(endPos, alpha)
             
-            -- Зміщуємо персонажа і скидаємо швидкість, щоб античит не думав що ми летимо
             hrp.CFrame = CFrame.new(nextPos)
             hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-            
-            task.wait(_G.StepDelay) -- мікро-пауза для обману сервера
+            task.wait(_G.StepDelay)
         end
     end
     
-    -- Фінальний точний телепорт на предмет
     if _G.ItemFarm then
         hrp.CFrame = targetCFrame
         hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
     end
 end
 
--- Налаштування обходу в меню
+-- Слайдери в меню
 FarmTab:CreateSlider({
    Name = "Дистанція кроку (Step Distance)",
    Range = {5, 40},
    Increment = 1,
-   CurrentValue = 15,
+   CurrentValue = 25,
    Callback = function(Value)
        _G.StepDistance = Value
    end,
@@ -112,23 +166,37 @@ FarmTab:CreateSlider({
    Name = "Затримка кроку (Step Delay)",
    Range = {0.01, 0.2},
    Increment = 0.01,
-   CurrentValue = 0.05,
+   CurrentValue = 0.04,
    Callback = function(Value)
        _G.StepDelay = Value
    end,
 })
 
+-- КНОПКА ДЛЯ ESP
 FarmTab:CreateToggle({
-   Name = "Увімкнути Автофарм (Bypass Mode)",
+   Name = "Увімкнути Item ESP (Підсвітка)",
+   CurrentValue = false,
+   Callback = function(Value)
+       _G.ItemESP = Value
+   end,
+})
+
+-- КНОПКА ДЛЯ АВТОФАРМУ
+FarmTab:CreateToggle({
+   Name = "Увімкнути Розумний Автофарм",
    CurrentValue = false,
    Flag = "ItemFarmToggle",
    Callback = function(Value)
        _G.ItemFarm = Value
        if Value then
            task.spawn(function()
+               local char = game.Players.LocalPlayer.Character
+               local hrp = char and char:FindFirstChild("HumanoidRootPart")
+               if hrp then lastPickedCFrame = hrp.CFrame end -- Початкова точка
+               
                while _G.ItemFarm do
-                   local char = game.Players.LocalPlayer.Character
-                   local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                   char = game.Players.LocalPlayer.Character
+                   hrp = char and char:FindFirstChild("HumanoidRootPart")
                    if not hrp then task.wait(0.5) continue end
                    
                    local anySelected = false
@@ -139,16 +207,16 @@ FarmTab:CreateToggle({
                    local targetItem = nil
                    local shortestDistance = math.huge
                    
-                   -- Пошук найближчого легітимного предмета
+                   -- Пошук видимих предметів
                    for _, desc in pairs(workspace:GetDescendants()) do
                        if not _G.ItemFarm then break end
+                       if blacklistedItems[desc] then continue end
                        
                        if desc:IsA("ProximityPrompt") then
                            local parent = desc.Parent
-                           if parent then
+                           if parent and not blacklistedItems[parent] then
                                local model = parent:IsA("Model") and parent or parent.Parent
                                
-                               -- Фільтр NPC та інших гравців
                                if model and model:IsA("Model") and (model:FindFirstChildOfClass("Humanoid") or parent:FindFirstChildOfClass("Humanoid")) then
                                    continue
                                end
@@ -176,17 +244,41 @@ FarmTab:CreateToggle({
                        end
                    end
                    
-                   -- Якщо знайшли предмет — рухаємося до нього кроками
+                   -- Збір або очікування
                    if targetItem then
-                       antiKickMove(targetItem.part.CFrame * CFrame.new(0, 1.5, 0))
+                       local targetCFrame = targetItem.part.CFrame * CFrame.new(0, 0.5, 0)
+                       antiKickMove(targetCFrame)
                        task.wait(0.1)
                        
-                       -- Підбір предмета
                        targetItem.prompt.RequiresLineOfSight = false
                        fireproximityprompt(targetItem.prompt)
-                       task.wait(0.3) -- Пауза, щоб сервер встиг зарахувати підбір предмета
+                       task.wait(0.3) 
+                       
+                       -- Оновлюємо координати останнього успішного збору
+                       lastPickedCFrame = targetCFrame
+                       
+                       -- Перевірка забагованості
+                       if targetItem.prompt and targetItem.prompt:IsDescendantOf(workspace) then
+                           itemFails[targetItem.prompt] = (itemFails[targetItem.prompt] or 0) + 1
+                           if itemFails[targetItem.prompt] >= 2 then
+                               blacklistedItems[targetItem.prompt] = true
+                               blacklistedItems[targetItem.part] = true
+                               task.delay(20, function()
+                                   blacklistedItems[targetItem.prompt] = nil
+                                   blacklistedItems[targetItem.part] = nil
+                                   itemFails[targetItem.prompt] = 0
+                               end)
+                           end
+                       end
                    else
-                       task.wait(0.5)
+                       -- Якщо нічого немає — летимо/стоїмо на місці останнього піднятого предмета
+                       if lastPickedCFrame then
+                           local distToLast = (hrp.Position - lastPickedCFrame.Position).Magnitude
+                           if distToLast > 5 then
+                               antiKickMove(lastPickedCFrame)
+                           end
+                       end
+                       task.wait(0.5) -- Спокійно чекаємо спавну без тупих польотів
                    end
                end
            end)
