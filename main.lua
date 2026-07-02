@@ -78,17 +78,28 @@ local RibStandList = {
 local ItemFarmList = {
 	"Mysterious Arrow",
 	"Rokakaka",
+	"Pure Rokakaka",
 	"Rib Cage of The Saint's Corpse",
+	"Left Arm of the Saint's Corpse",
+	"Heart of the Saint's Corpse",
+	"Pelvis of the Saint's Corpse",
 	"Lucky Arrow",
 	"Clackers",
 	"Diamond",
 	"Stone Mask",
+	"Dio's Diary",
+	"Ancient Scroll",
+	"Steel Ball",
 	"Caesar's Headband",
 	"Pure Rokakaka",
 	"Zeppeli's Hat",
 	"Gold Coin",
+	"Diamond",
 	"Ancient Scroll",
 	"Quinton's Glove",
+	"Caesar's Headband",
+	"Clackers",
+	"Red Stone of Aja"
 	"Steel Ball",
 	"DIO's Diary",
 	"Lucky Stone Mask",
@@ -1002,6 +1013,7 @@ local function getNearestTargetPrompt()
 	for _, obj in ipairs(workspace:GetDescendants()) do
 		if obj:IsA("ProximityPrompt") then
 			local objectText = tostring(obj.ObjectText or "")
+			if objectText ~= "" and ItemFarmTargets[objectText] == true then
 			if objectText ~= "" and itemMatchesTarget(objectText) then
 				local promptPosition = getPromptPosition(obj)
 				if promptPosition then
