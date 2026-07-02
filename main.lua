@@ -10,7 +10,6 @@ local Window = Rayfield:CreateWindow({
 local MainTab = Window:CreateTab("Головна", 4483362458)
 local FarmTab = Window:CreateTab("Автофарм", 4483362534)
 
--- Налаштування висоти стрибка
 local JP_Value = 50
 task.spawn(function()
     while task.wait(0.1) do
@@ -31,9 +30,8 @@ MainTab:CreateSlider({
    end,
 })
 
--- Логіка автофарму
 _G.ItemFarm = false
-_G.FarmSpeed = 120 -- Швидкість польоту за замовчуванням
+_G.FarmSpeed = 120 
 
 _G.SelectedItems = {
     ["Ancient Scroll"] = false,
@@ -61,24 +59,33 @@ _G.SelectedItems = {
     ["Zeppeli's Hat"] = false
 }
 
--- Функція плавного переміщення до предмета
-local function tweenTo(cframe)
-    local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        local distance = (hrp.Position - cframe.Position).Magnitude
-        if distance < 2 then 
-            hrp.CFrame = cframe
-            return 
-        end
+-- Функція ідеально плавного польоту без тряски та провалювання під карту
+local function smoothTween(targetCFrame)
+    local char = game.Players.LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    
+    if hrp and humanoid then
+        -- Вимикаємо фізику гуманоїда, щоб прибрати дьоргання
+        local oldPlatformStand = humanoid.PlatformStand
+        humanoid.PlatformStand = true
+        hrp.Anchored = true
+        
+        local distance = (hrp.Position - targetCFrame.Position).Magnitude
         local tweenService = game:GetService("TweenService")
         local tweenInfo = TweenInfo.new(distance / _G.FarmSpeed, Enum.EasingStyle.Linear)
-        local tween = tweenService:Create(hrp, tweenInfo, {CFrame = cframe})
+        
+        local tween = tweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
         tween:Play()
         tween.Completed:Wait()
+        
+        -- Повертаємо фізику назад після прильоту
+        hrp.Anchored = false
+        humanoid.PlatformStand = oldPlatformStand
+        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
     end
 end
 
--- Слайдер швидкості польоту
 FarmTab:CreateSlider({
    Name = "Швидкість польоту (Tween Speed)",
    Range = {50, 300},
@@ -98,15 +105,19 @@ FarmTab:CreateToggle({
        if Value then
            task.spawn(function()
                while _G.ItemFarm do
-                   local itemFound = false
+                   local char = game.Players.LocalPlayer.Character
+                   local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                   if not hrp then task.wait(0.5) continue end
                    
-                   -- Перевірка фільтрів предметів
                    local anySelected = false
                    for _, isSelected in pairs(_G.SelectedItems) do
                        if isSelected then anySelected = true; break end
                    end
                    
-                   -- Глибокий пошук по карті з фільтрацією
+                   local targetItem = nil
+                   local shortestDistance = math.huge
+                   
+                   -- Пошук найближчого предмету (один цикл = один точковий політ)
                    for _, desc in pairs(workspace:GetDescendants()) do
                        if not _G.ItemFarm then break end
                        
@@ -115,39 +126,27 @@ FarmTab:CreateToggle({
                            if parent then
                                local model = parent:IsA("Model") and parent or parent.Parent
                                
-                               -- ФІЛЬТР NPC ТА ГРАВЦІВ: якщо є Humanoid — це не предмет, пропускаємо!
+                               -- Фільтр живих гравців та NPC
                                if model and model:IsA("Model") and (model:FindFirstChildOfClass("Humanoid") or parent:FindFirstChildOfClass("Humanoid")) then
                                    continue
                                end
                                
-                               -- Визначаємо назву предмета
                                local itemName = ""
-                               if _G.SelectedItems[parent.Name] ~= nil then
-                                   itemName = parent.Name
-                               elseif model and _G.SelectedItems[model.Name] ~= nil then
-                                   itemName = model.Name
-                               elseif desc.ObjectText and _G.SelectedItems[desc.ObjectText] ~= nil then
-                                   itemName = desc.ObjectText
-                               end
+                               if _G.SelectedItems[parent.Name] ~= nil then itemName = parent.Name
+                               elseif model and _G.SelectedItems[model.Name] ~= nil then itemName = model.Name
+                               elseif desc.ObjectText and _G.SelectedItems[desc.ObjectText] ~= nil then itemName = desc.ObjectText end
                                
-                               -- Якщо предмет підходить під критерії
                                if itemName ~= "" then
                                    local shouldPickup = not anySelected or _G.SelectedItems[itemName]
                                    
                                    if shouldPickup then
                                        local targetPart = parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart") or (model and model:FindFirstChildWhichIsA("BasePart"))
-                                       
                                        if targetPart then
-                                           itemFound = true
-                                           
-                                           -- Летимо безпосередньо до предмета
-                                           tweenTo(targetPart.CFrame * CFrame.new(0, 1.5, 0))
-                                           task.wait(0.1)
-                                           
-                                           -- Підбираємо
-                                           desc.RequiresLineOfSight = false
-                                           fireproximityprompt(desc)
-                                           task.wait(0.2) -- невелика затримка, щоб предмет зник з карти
+                                           local dist = (hrp.Position - targetPart.Position).Magnitude
+                                           if dist < shortestDistance then
+                                               shortestDistance = dist
+                                               targetItem = {prompt = desc, part = targetPart}
+                                           end
                                        end
                                    end
                                end
@@ -155,9 +154,16 @@ FarmTab:CreateToggle({
                        end
                    end
                    
-                   -- Якщо на карті нічого немає, просто чекаємо на спавн
-                   if not itemFound then
-                       task.wait(0.5)
+                   -- Якщо знайшли найближчу ціль — летимо суто до неї
+                   if targetItem then
+                       smoothTween(targetItem.part.CFrame * CFrame.new(0, 1.5, 0))
+                       task.wait(0.1)
+                       
+                       targetItem.prompt.RequiresLineOfSight = false
+                       fireproximityprompt(targetItem.prompt)
+                       task.wait(0.25) -- Час на те, щоб предмет зник з карти
+                   else
+                       task.wait(0.5) -- Якщо предметів немає, просто чекаємо спавну
                    end
                end
            end)
