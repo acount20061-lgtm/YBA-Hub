@@ -1,21 +1,34 @@
+-- ==============================================================================
+-- UA KILLER HUB | YBA ULTIMATE FARMER | VERSION 2.0.4
+-- ==============================================================================
+-- Розробник: acount20061-lgtm
+-- Призначення: Автоматичний збір предметів в YBA з системою анти-пасток
+-- ==============================================================================
+
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "UA Killer Hub | YBA Final Edition",
-   LoadingTitle = "Завантаження повного функціоналу...",
+   Name = "UA Killer Hub | Ultimate YBA Farm",
+   LoadingTitle = "Ініціалізація систем безпеки...",
    LoadingSubtitle = "by acount20061-lgtm",
    ConfigurationSaving = { Enabled = false }
 })
 
-local FarmTab = Window:CreateTab("Автофарм", 4483362534)
+-- ==============================================================================
+-- ТАБЛИЦІ ТА ГЛОБАЛЬНІ ЗМІННІ
+-- ==============================================================================
 
 _G.ItemFarm = false
 _G.AutoSell = false
+_G.ItemESP = false
 _G.StepDistance = 25
-_G.StepDelay = 0.04
+_G.StepDelay = 0.03
 
-local bannedCoordinates = {}
-local espObjects = {}
+local BannedCoordinates = {}
+local ESPObjects = {}
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
 
 _G.SelectedItems = {
     ["Ancient Scroll"] = false, ["Blue Candy"] = false, ["Caesar's Headband"] = false,
@@ -23,105 +36,151 @@ _G.SelectedItems = {
     ["Dio's Diary"] = false, ["Gold Coin"] = false, ["Gold Umbrella"] = false,
     ["Green Candy"] = false, ["Lucky Arrow"] = false, ["Lucky Stone Mask"] = false,
     ["Mysterious Arrow"] = false, ["Pure Rokakaka"] = false, ["Quinton's Glove"] = false,
-    ["Red Candy"] = false, ["Rib Cage of The Saint's Corpse"] = false,
-    ["Rokakaka"] = false, ["Steel Ball"] = false, ["Stone Mask"] = false,
-    ["Yellow Candy"] = false, ["Zepellin's Headband"] = false, ["Zeppeli's Hat"] = false
+    ["Red Candy"] = false, ["Rib Cage of The Saint's Corpse"] = false, ["Rokakaka"] = false,
+    ["Steel Ball"] = false, ["Stone Mask"] = false, ["Yellow Candy"] = false,
+    ["Zepellin's Headband"] = false, ["Zeppeli's Hat"] = false
 }
 
--- Функція продажу
+-- ==============================================================================
+-- СИСТЕМА ПЕРЕВІРКИ БАНУ КООРДИНАТ (ANTI-TRAP)
+-- ==============================================================================
+
+local function IsCoordinateBanned(position)
+    for _, bannedPos in pairs(BannedCoordinates) do
+        if (position - bannedPos).Magnitude < 2.5 then
+            return true
+        end
+    end
+    return false
+end
+
+-- ==============================================================================
+-- СИСТЕМА АВТО-ПРОДАЖУ (AUTO SELL)
+-- ==============================================================================
+
 task.spawn(function()
-    while true do
-        task.wait(10)
+    while task.wait(10) do
         if _G.AutoSell then
-            local shop = workspace:FindFirstChild("Merchant") or workspace:FindFirstChild("Shop")
-            if shop then
-                local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    local oldPos = hrp.CFrame
-                    hrp.CFrame = shop.CFrame
-                    task.wait(1)
-                    local cd = shop:FindFirstChildWhichIsA("ClickDetector", true)
-                    if cd then fireclickdetector(cd) end
+            local merchant = Workspace:FindFirstChild("Merchant") or Workspace:FindFirstChild("Shop")
+            if merchant then
+                local character = LocalPlayer.Character
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    local rootPart = character.HumanoidRootPart
+                    local previousCFrame = rootPart.CFrame
+                    
+                    rootPart.CFrame = merchant.CFrame
+                    task.wait(1.5)
+                    
+                    local clickDetector = merchant:FindFirstChildWhichIsA("ClickDetector", true)
+                    if clickDetector then
+                        fireclickdetector(clickDetector)
+                    end
+                    
                     task.wait(0.5)
-                    hrp.CFrame = oldPos
+                    rootPart.CFrame = previousCFrame
                 end
             end
         end
     end
 end)
 
--- Розумний ESP (сканує все)
+-- ==============================================================================
+-- СИСТЕМА ESP (VISUALIZATION)
+-- ==============================================================================
+
 task.spawn(function()
-    while true do
-        task.wait(1)
-        if _G.ItemFarm then
-            for _, desc in pairs(workspace:GetDescendants()) do
-                if desc:IsA("ProximityPrompt") and desc.Parent then
-                    local part = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart")
-                    if part and part.Transparency < 1 then
-                        local isBanned = false
-                        for _, v in pairs(bannedCoordinates) do if (part.Position - v).Magnitude < 2 then isBanned = true break end end
-                        if not isBanned and not espObjects[part] then
-                            local bg = Instance.new("BillboardGui", part)
-                            bg.AlwaysOnTop = true; bg.Size = UDim2.new(0,100,0,50)
-                            local t = Instance.new("TextLabel", bg); t.Size = UDim2.new(1,0,1,0); t.Text = desc.ObjectText
-                            espObjects[part] = bg
+    while task.wait(1) do
+        if _G.ItemESP then
+            for _, descendant in pairs(Workspace:GetDescendants()) do
+                if descendant:IsA("ProximityPrompt") and descendant.Parent then
+                    local part = descendant.Parent:IsA("BasePart") and descendant.Parent or descendant.Parent:FindFirstChildWhichIsA("BasePart")
+                    if part and part.Transparency < 1 and not IsCoordinateBanned(part.Position) then
+                        if not ESPObjects[part] then
+                            local billboard = Instance.new("BillboardGui", part)
+                            billboard.AlwaysOnTop = true
+                            billboard.Size = UDim2.new(0, 100, 0, 50)
+                            
+                            local label = Instance.new("TextLabel", billboard)
+                            label.Size = UDim2.new(1, 0, 1, 0)
+                            label.Text = descendant.ObjectText
+                            label.TextColor3 = Color3.fromRGB(0, 255, 255)
+                            
+                            ESPObjects[part] = billboard
                         end
                     end
                 end
             end
+        else
+            for _, obj in pairs(ESPObjects) do
+                if obj then obj:Destroy() end
+            end
+            ESPObjects = {}
         end
     end
 end)
 
--- Основний фарм без повернення
+-- ==============================================================================
+-- ОСНОВНА ЛОГІКА ФАРМУ (MAIN LOOP)
+-- ==============================================================================
+
 task.spawn(function()
-    while true do
-        task.wait(0.1)
+    while task.wait(0.2) do
         if _G.ItemFarm then
-            local char = game.Players.LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if not hrp then continue end
+            local character = LocalPlayer.Character
+            if not character or not character:FindFirstChild("HumanoidRootPart") then continue end
+            local rootPart = character.HumanoidRootPart
             
-            local target = nil
-            local dist = math.huge
+            local bestItem = nil
+            local minDistance = math.huge
             
-            for _, desc in pairs(workspace:GetDescendants()) do
-                if desc:IsA("ProximityPrompt") and desc.Parent then
-                    local part = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart")
-                    if part and _G.SelectedItems[desc.ObjectText] then
-                        local isBanned = false
-                        for _, v in pairs(bannedCoordinates) do if (part.Position - v).Magnitude < 3 then isBanned = true break end end
-                        if not isBanned then
-                            local d = (hrp.Position - part.Position).Magnitude
-                            if d < dist then dist = d; target = {p = part, prompt = desc} end
+            for _, obj in pairs(Workspace:GetDescendants()) do
+                if obj:IsA("ProximityPrompt") and _G.SelectedItems[obj.ObjectText] then
+                    local parentPart = obj.Parent:IsA("BasePart") and obj.Parent or obj.Parent:FindFirstChildWhichIsA("BasePart")
+                    if parentPart and not IsCoordinateBanned(parentPart.Position) then
+                        local distance = (rootPart.Position - parentPart.Position).Magnitude
+                        if distance < minDistance then
+                            minDistance = distance
+                            bestItem = {part = parentPart, prompt = obj}
                         end
                     end
                 end
             end
             
-            if target then
-                -- Рух
-                hrp.CFrame = target.p.CFrame
-                task.wait(0.2)
-                fireproximityprompt(target.prompt)
-                task.wait(0.2)
-                -- Перевірка чи предмет зник
-                if target.p and target.p.Parent and target.p.Transparency < 1 then
-                    table.insert(bannedCoordinates, target.p.Position)
+            if bestItem then
+                rootPart.CFrame = bestItem.part.CFrame
+                task.wait(0.3)
+                fireproximityprompt(bestItem.prompt)
+                task.wait(0.5)
+                
+                -- Перевірка пастки
+                if bestItem.part and bestItem.part.Parent and bestItem.part.Transparency < 1 then
+                    table.insert(BannedCoordinates, bestItem.part.Position)
                 end
             end
         end
     end
 end)
 
--- UI
-FarmTab:CreateToggle({Name = "Автофарм (без повернення)", Callback = function(v) _G.ItemFarm = v end})
-FarmTab:CreateToggle({Name = "Автопродаж (кожні 10с)", Callback = function(v) _G.AutoSell = v end})
+-- ==============================================================================
+-- СТВОРЕННЯ UI (INTERFACE)
+-- ==============================================================================
 
-local sortedItems = {}
-for k in pairs(_G.SelectedItems) do table.insert(sortedItems, k) end
-table.sort(sortedItems)
-for _, name in pairs(sortedItems) do
+local FarmTab = Window:CreateTab("Автофарм", 4483362534)
+local MiscTab = Window:CreateTab("Налаштування", 4483362628)
+
+FarmTab:CreateToggle({Name = "Увімкнути Автофарм", Callback = function(v) _G.ItemFarm = v end})
+FarmTab:CreateToggle({Name = "Увімкнути Автопродаж", Callback = function(v) _G.AutoSell = v end})
+FarmTab:CreateToggle({Name = "Увімкнути ESP", Callback = function(v) _G.ItemESP = v end})
+
+local sorted = {}
+for k in pairs(_G.SelectedItems) do table.insert(sorted, k) end
+table.sort(sorted)
+for _, name in pairs(sorted) do
     FarmTab:CreateToggle({Name = name, Callback = function(v) _G.SelectedItems[name] = v end})
 end
+
+MiscTab:CreateSlider({Name = "Швидкість кроку", Range = {5, 50}, CurrentValue = 25, Callback = function(v) _G.StepDistance = v end})
+
+-- ==============================================================================
+-- КІНЕЦЬ СКРИПТУ
+-- ==============================================================================
