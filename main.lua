@@ -1,8 +1,8 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "UA Killer Hub | YBA (ESP & Stay Mode)",
-   LoadingTitle = "Завантаження скрипта з ESP...",
+   Name = "UA Killer Hub | YBA (Anti-Trap)",
+   LoadingTitle = "Завантаження захисту від пасток...",
    LoadingSubtitle = "by acount20061-lgtm",
    ConfigurationSaving = { Enabled = false }
 })
@@ -38,7 +38,7 @@ _G.StepDelay = 0.04
 local itemFails = {}
 local blacklistedItems = {}
 local espObjects = {}
-local lastPickedCFrame = nil -- Змінна для запам'ятовування останнього місця
+local lastPickedCFrame = nil 
 
 _G.SelectedItems = {
     ["Ancient Scroll"] = false,
@@ -66,11 +66,13 @@ _G.SelectedItems = {
     ["Zeppeli's Hat"] = false
 }
 
--- ФУНКЦІЯ СТВОРЕННЯ ESP (Підсвічування речей крізь стіни)
+-- Розумний ESP (малює тільки якщо є реальна деталь)
 local function applyESP(parent, name)
     if espObjects[parent] then return end
     local part = parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart")
-    if not part then return end
+    
+    -- ЗАХИСТ: якщо деталі немає або вона повністю прозора/невидима — це фейк розробників
+    if not part or part.Transparency == 1 or blacklistedItems[parent] then return end
 
     local bgui = Instance.new("BillboardGui")
     bgui.Name = "YBA_Item_ESP"
@@ -83,16 +85,15 @@ local function applyESP(parent, name)
     text.BackgroundTransparency = 1
     text.Size = UDim2.new(1, 0, 1, 0)
     text.Text = name
-    text.TextColor3 = Color3.fromRGB(0, 255, 255) -- Гарний бірюзовий колір
+    text.TextColor3 = Color3.fromRGB(0, 255, 255) 
     text.TextSize = 14
     text.Font = Enum.Font.SourceSansBold
-    text.TextStrokeTransparency = 0 -- Чорна обводка літер для чіткості
+    text.TextStrokeTransparency = 0 
 
     bgui.Parent = part
     espObjects[parent] = bgui
 end
 
--- Потік для роботи ESP
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -113,7 +114,6 @@ task.spawn(function()
                 end
             end
         else
-            -- Очищення ESP якщо тумблер вимкнено
             for parent, gui in pairs(espObjects) do
                 if gui then gui:Destroy() end
             end
@@ -122,7 +122,6 @@ task.spawn(function()
     end
 end)
 
--- Покроковий плавний рух
 local function antiKickMove(targetCFrame)
     local char = game.Players.LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -151,7 +150,6 @@ local function antiKickMove(targetCFrame)
     end
 end
 
--- Слайдери в меню
 FarmTab:CreateSlider({
    Name = "Дистанція кроку (Step Distance)",
    Range = {5, 40},
@@ -172,7 +170,6 @@ FarmTab:CreateSlider({
    end,
 })
 
--- КНОПКА ДЛЯ ESP
 FarmTab:CreateToggle({
    Name = "Увімкнути Item ESP (Підсвітка)",
    CurrentValue = false,
@@ -181,9 +178,8 @@ FarmTab:CreateToggle({
    end,
 })
 
--- КНОПКА ДЛЯ АВТОФАРМУ
 FarmTab:CreateToggle({
-   Name = "Увімкнути Розумний Автофарм",
+   Name = "Увімкнути Автофарм (Anti-Trap)",
    CurrentValue = false,
    Flag = "ItemFarmToggle",
    Callback = function(Value)
@@ -192,7 +188,7 @@ FarmTab:CreateToggle({
            task.spawn(function()
                local char = game.Players.LocalPlayer.Character
                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-               if hrp then lastPickedCFrame = hrp.CFrame end -- Початкова точка
+               if hrp then lastPickedCFrame = hrp.CFrame end 
                
                while _G.ItemFarm do
                    char = game.Players.LocalPlayer.Character
@@ -207,7 +203,6 @@ FarmTab:CreateToggle({
                    local targetItem = nil
                    local shortestDistance = math.huge
                    
-                   -- Пошук видимих предметів
                    for _, desc in pairs(workspace:GetDescendants()) do
                        if not _G.ItemFarm then break end
                        if blacklistedItems[desc] then continue end
@@ -231,12 +226,18 @@ FarmTab:CreateToggle({
                                    
                                    if shouldPickup then
                                        local targetPart = parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart") or (model and model:FindFirstChildWhichIsA("BasePart"))
-                                       if targetPart then
+                                       
+                                       -- ДОДАТКОВА ПЕРЕВІРКА НА ПАСТКУ: перевіряємо прозорість та наявність фізичної деталі
+                                       if targetPart and targetPart.Transparency < 1 then
                                            local dist = (hrp.Position - targetPart.Position).Magnitude
                                            if dist < shortestDistance then
                                                shortestDistance = dist
-                                               targetItem = {prompt = desc, part = targetPart}
+                                               targetItem = {prompt = desc, part = targetPart, parent = parent}
                                            end
+                                       else
+                                           -- Якщо це фейковий напис без фізичного предмета — блеклістимо його одразу
+                                           blacklistedItems[desc] = true
+                                           blacklistedItems[parent] = true
                                        end
                                    end
                                end
@@ -244,7 +245,6 @@ FarmTab:CreateToggle({
                        end
                    end
                    
-                   -- Збір або очікування
                    if targetItem then
                        local targetCFrame = targetItem.part.CFrame * CFrame.new(0, 0.5, 0)
                        antiKickMove(targetCFrame)
@@ -254,31 +254,33 @@ FarmTab:CreateToggle({
                        fireproximityprompt(targetItem.prompt)
                        task.wait(0.3) 
                        
-                       -- Оновлюємо координати останнього успішного збору
                        lastPickedCFrame = targetCFrame
                        
-                       -- Перевірка забагованості
+                       -- Якщо після спроби підбору напис все ще висить — кидаємо в бан
                        if targetItem.prompt and targetItem.prompt:IsDescendantOf(workspace) then
                            itemFails[targetItem.prompt] = (itemFails[targetItem.prompt] or 0) + 1
                            if itemFails[targetItem.prompt] >= 2 then
                                blacklistedItems[targetItem.prompt] = true
-                               blacklistedItems[targetItem.part] = true
-                               task.delay(20, function()
+                               blacklistedItems[targetItem.parent] = true
+                               if espObjects[targetItem.parent] then
+                                   espObjects[targetItem.parent]:Destroy()
+                                   espObjects[targetItem.parent] = nil
+                               end
+                               task.delay(30, function()
                                    blacklistedItems[targetItem.prompt] = nil
-                                   blacklistedItems[targetItem.part] = nil
+                                   blacklistedItems[targetItem.parent] = nil
                                    itemFails[targetItem.prompt] = 0
                                end)
                            end
                        end
                    else
-                       -- Якщо нічого немає — летимо/стоїмо на місці останнього піднятого предмета
                        if lastPickedCFrame then
                            local distToLast = (hrp.Position - lastPickedCFrame.Position).Magnitude
                            if distToLast > 5 then
                                antiKickMove(lastPickedCFrame)
                            end
                        end
-                       task.wait(0.5) -- Спокійно чекаємо спавну без тупих польотів
+                       task.wait(0.5) 
                    end
                end
            end)
