@@ -10,6 +10,7 @@ local Window = Rayfield:CreateWindow({
 local MainTab = Window:CreateTab("Головна", 4483362458)
 local FarmTab = Window:CreateTab("Автофарм", 4483362534)
 
+-- Слайдер стрибка
 local JP_Value = 50
 task.spawn(function()
     while task.wait(0.1) do
@@ -30,8 +31,10 @@ MainTab:CreateSlider({
    end,
 })
 
+-- Налаштування фарму
 _G.ItemFarm = false
-_G.FarmSpeed = 120 -- Початкова швидкість польоту
+_G.CollectionMode = "Back & Forth" -- Дефолтний режим зі скриншоту
+_G.SafePlaceCFrame = CFrame.new(0, 500, 0) -- Початкова точка високо в небі
 
 _G.SelectedItems = {
     ["Ancient Scroll"] = false,
@@ -59,35 +62,41 @@ _G.SelectedItems = {
     ["Zeppeli's Hat"] = false
 }
 
-local function tweenTo(cframe)
-    local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        local distance = (hrp.Position - cframe.Position).Magnitude
-        if distance < 2 then 
-            hrp.CFrame = cframe
-            return 
-        end
-        local tweenService = game:GetService("TweenService")
-        local tweenInfo = TweenInfo.new(distance / _G.FarmSpeed, Enum.EasingStyle.Linear)
-        local tween = tweenService:Create(hrp, tweenInfo, {CFrame = cframe})
-        tween:Play()
-        tween.Completed:Wait()
-    end
-end
-
--- Налаштування швидкості польоту прямо в GUI
-FarmTab:CreateSlider({
-   Name = "Швидкість польоту (Tween Speed)",
-   Range = {50, 300},
-   Increment = 10,
-   CurrentValue = 120,
-   Callback = function(Value)
-       _G.FarmSpeed = Value
+-- Кнопка для встановлення Safe Place
+FarmTab:CreateButton({
+   Name = "Встановити безпечне місце (Safe Place Position)",
+   Callback = function()
+       local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+       if hrp then
+           _G.SafePlaceCFrame = hrp.CFrame
+           Rayfield:Notify({Title = "Успішно!", Content = "Позицію для сховища збережено!", Duration = 3})
+       end
    end,
 })
 
+-- Вибір режиму як на скриншоті "Знімок екрана 2026-07-02 164344.png"
+FarmTab:CreateDropdown({
+   Name = "Collection Mode",
+   Options = {"Back & Forth", "Batch Collect"},
+   CurrentOption = {"Back & Forth"},
+   MultipleOptions = false,
+   Callback = function(Option)
+       _G.CollectionMode = Option[1]
+   end,
+})
+
+-- Основна функція миттєвого телепорту
+local function instantTeleport(targetCFrame)
+    local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.Anchored = false
+        hrp.CFrame = targetCFrame
+        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+    end
+end
+
 FarmTab:CreateToggle({
-   Name = "Увімкнути Автофарм",
+   Name = "Увімкнути Автофарм (Safe Mode)",
    CurrentValue = false,
    Flag = "ItemFarmToggle",
    Callback = function(Value)
@@ -95,57 +104,79 @@ FarmTab:CreateToggle({
        if Value then
            task.spawn(function()
                while _G.ItemFarm do
-                   local itemFound = false
-                   
+                   local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                   if not hrp then task.wait(1) continue end
+
+                   -- Перевіряємо фільтри
                    local anySelected = false
                    for _, isSelected in pairs(_G.SelectedItems) do
                        if isSelected then anySelected = true; break end
                    end
                    
-                   -- Перевіряємо ТІЛЬКИ поверхню мапи (без заглядання всередину гравців чи стін)
+                   -- Збираємо список предметів на карті
+                   local validItems = {}
                    for _, v in pairs(workspace:GetChildren()) do
-                       if not _G.ItemFarm then break end
-                       
                        if _G.SelectedItems[v.Name] ~= nil then
                            local shouldPickup = not anySelected or _G.SelectedItems[v.Name]
-                           
                            if shouldPickup then
-                               -- Шукаємо кнопку підбору СУТО всередині знайденої моделі предмета
-                               local prompt = v:FindFirstChildOfClass("ProximityPrompt")
+                               local prompt = v:FindFirstChildOfClass("ProximityPrompt") or v:FindFirstChild("Handle") and v.Handle:FindFirstChildOfClass("ProximityPrompt")
                                if not prompt then
                                    for _, desc in pairs(v:GetDescendants()) do
-                                       if desc:IsA("ProximityPrompt") then
-                                           prompt = desc
-                                           break
-                                       end
+                                       if desc:IsA("ProximityPrompt") then prompt = desc; break end
                                    end
                                end
-                               
-                               local targetPart = v:IsA("BasePart") and v or v:FindFirstChild("Handle") or v:FindFirstChildWhichIsA("BasePart") or (prompt and prompt.Parent)
-                               
-                               if prompt and targetPart and targetPart:IsA("BasePart") then
-                                   itemFound = true
-                                   
-                                   -- Летимо чітко на предмет
-                                   tweenTo(targetPart.CFrame)
-                                   task.wait(0.15)
-                                   
-                                   -- Обхід обмежень підбору (Bypass)
-                                   prompt.RequiresLineOfSight = false
-                                   prompt.MaxActivationDistance = math.huge
-                                   
-                                   -- Стабільна емуляція натискання кнопки "E"
-                                   fireproximityprompt(prompt)
-                                   task.wait(0.3)
+                               local targetPart = v:IsA("BasePart") and v or v:FindFirstChild("Handle") or (prompt and prompt.Parent)
+                               if prompt and targetPart then
+                                   table.insert(validItems, {prompt = prompt, part = targetPart})
                                end
                            end
                        end
                    end
-                   
-                   if not itemFound then
-                       task.wait(0.5)
+
+                   -- Логіка збору предметів
+                   if #validItems > 0 then
+                       if _G.CollectionMode == "Back & Forth" then
+                           for _, item in ipairs(validItems) do
+                               if not _G.ItemFarm then break end
+                               
+                               -- ТП до ітема
+                               instantTeleport(item.part.CFrame * CFrame.new(0, 1.5, 0))
+                               task.wait(0.15)
+                               
+                               -- Підбір
+                               item.prompt.RequiresLineOfSight = false
+                               fireproximityprompt(item.prompt)
+                               task.wait(0.1)
+                               
+                               -- Повернення в безпечну зону
+                               instantTeleport(_G.SafePlaceCFrame)
+                               hrp.Anchored = true
+                               task.wait(0.4) -- Кулдаун для безпеки
+                           end
+                       elseif _G.CollectionMode == "Batch Collect" then
+                           -- Швидкий проліт по всіх ітемах за раз
+                           for _, item in ipairs(validItems) do
+                               if not _G.ItemFarm then break end
+                               instantTeleport(item.part.CFrame * CFrame.new(0, 1.5, 0))
+                               task.wait(0.1)
+                               item.prompt.RequiresLineOfSight = false
+                               fireproximityprompt(item.prompt)
+                               task.wait(0.05)
+                           end
+                           -- Повернення після пачки
+                           instantTeleport(_G.SafePlaceCFrame)
+                           hrp.Anchored = true
+                       end
+                   else
+                       -- Якщо предметів немає, сидимо в сейф-зоні заморожені
+                       instantTeleport(_G.SafePlaceCFrame)
+                       hrp.Anchored = true
+                       task.wait(1)
                    end
                end
+               -- Якщо вимкнули фарм — розморожуємо персонажа
+               local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+               if hrp then hrp.Anchored = false end
            end)
        end
    end,
