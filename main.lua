@@ -89,30 +89,44 @@ FarmTab:CreateToggle({
                        if selected then anySelected = true; break end
                    end
                    
-                   for _, v in pairs(workspace:GetDescendants()) do
+                   for _, v in pairs(workspace:GetChildren()) do
                        if _G.ItemFarm == false then break end
                        
-                       local shouldPickup = false
-                       if not anySelected then
-                           if _G.SelectedItems[v.Name] ~= nil then shouldPickup = true end
-                       else
-                           if _G.SelectedItems[v.Name] == true then shouldPickup = true end
-                       end
-                       
-                       if shouldPickup and v:IsA("BasePart") then
-                           itemFound = true
-                           tweenTo(v.CFrame * CFrame.new(0, 2, 0))
-                           task.wait(0.3)
-                           if v:FindFirstChildOfClass("ClickDetector") then
-                               fireclickdetector(v:FindFirstChildOfClass("ClickDetector"))
-                           elseif v:FindFirstChild("Hitbox") and v.Hitbox:FindFirstChildOfClass("ClickDetector") then
-                               fireclickdetector(v.Hitbox:FindFirstChildOfClass("ClickDetector"))
+                       if v:IsA("MeshPart") or v:IsA("Part") or v:IsA("Model") then
+                           local name = v.Name
+                           local targetPart = v:IsA("Model") and (v:FindFirstChild("Handle") or v:FindFirstChildOfClass("Part") or v:FindFirstChildOfClass("MeshPart")) or v
+                           
+                           local shouldPickup = false
+                           if not anySelected then
+                               if _G.SelectedItems[name] ~= nil then shouldPickup = true end
+                           else
+                               if _G.SelectedItems[name] == true then shouldPickup = true end
                            end
-                           task.wait(0.3)
+                           
+                           if shouldPickup and targetPart then
+                               itemFound = true
+                               local clickDetector = v:FindFirstChildOfClass("ClickDetector") or (v:FindFirstChild("Hitbox") and v.Hitbox:FindFirstChildOfClass("ClickDetector"))
+                               
+                               if not clickDetector and v:IsA("Model") then
+                                   for _, child in pairs(v:GetDescendants()) do
+                                       if child:IsA("ClickDetector") then
+                                           clickDetector = child
+                                           break
+                                       end
+                                   end
+                               end
+                               
+                               if clickDetector then
+                                   tweenTo(targetPart.CFrame * CFrame.new(0, 2, 0))
+                                   task.wait(0.2)
+                                   fireclickdetector(clickDetector)
+                                   task.wait(0.2)
+                               end
+                           end
                        end
                    end
                    if not itemFound then
-                       task.wait(1)
+                       task.wait(0.5)
                    end
                end
            end)
