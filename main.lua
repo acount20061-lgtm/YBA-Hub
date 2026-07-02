@@ -5,141 +5,65 @@ local Window = Rayfield:CreateWindow({
    LoadingTitle = "Завантаження скрипта...",
    LoadingSubtitle = "by acount20061-lgtm",
    ConfigurationSaving = { Enabled = false }
- })
+})
 
 local MainTab = Window:CreateTab("Головна", 4483362458)
 local FarmTab = Window:CreateTab("Автофарм", 4483362534)
 
-local JP_Value = 50
-task.spawn(function()
-    while task.wait(0.1) do
-        local p = game.Players.LocalPlayer
-        if p.Character and p.Character:FindFirstChild("Humanoid") then
-            p.Character.Humanoid.JumpPower = JP_Value
-        end
-    end
-end)
-
-MainTab:CreateSlider({
-   Name = "Висота стрибка (JumpPower)",
-   Range = {50, 200},
-   Increment = 1,
-   CurrentValue = 50,
-   Callback = function(Value)
-       JP_Value = Value
-   end,
-})
-
 _G.ItemFarm = false
-_G.SelectedItems = {
-    ["Ancient Scroll"] = false,
-    ["Blue Candy"] = false,
-    ["Caesar's Headband"] = false,
-    ["Christmas Present"] = false,
-    ["Clackers"] = false,
-    ["Diamond"] = false,
-    ["Dio's Diary"] = false,
-    ["Gold Coin"] = false,
-    ["Gold Umbrella"] = false,
-    ["Green Candy"] = false,
-    ["Lucky Arrow"] = false,
-    ["Lucky Stone Mask"] = false,
-    ["Mysterious Arrow"] = false,
-    ["Pure Rokakaka"] = false,
-    ["Quinton's Glove"] = false,
-    ["Red Candy"] = false,
-    ["Rib Cage of The Saint's Corpse"] = false,
-    ["Rokakaka"] = false,
-    ["Steel Ball"] = false,
-    ["Stone Mask"] = false,
-    ["Yellow Candy"] = false,
-    ["Zepellin's Headband"] = false,
-    ["Zeppeli's Hat"] = false
+_G.TargetItem = nil
+
+local ItemList = {
+    "Ancient Scroll", "Blue Candy", "Caesar's Headband", "Christmas Present", "Clackers",
+    "Diamond", "Dio's Diary", "Gold Coin", "Gold Umbrella", "Green Candy", "Lucky Arrow",
+    "Lucky Stone Mask", "Mysterious Arrow", "Pure Rokakaka", "Quinton's Glove",
+    "Red Candy", "Rib Cage of The Saint's Corpse", "Rokakaka", "Steel Ball",
+    "Stone Mask", "Yellow Candy", "Zepellin's Headband", "Zeppeli's Hat"
 }
 
-local function tweenTo(cframe)
-    local player = game.Players.LocalPlayer
-    if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-        local hrp = player.Character.HumanoidRootPart
-        local distance = (hrp.Position - cframe.Position).Magnitude
-        local duration = distance / 75
-        
+local function tweenTo(target)
+    local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then
         local tweenService = game:GetService("TweenService")
-        local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
-        local tween = tweenService:Create(hrp, tweenInfo, {CFrame = cframe})
-        
+        local tween = tweenService:Create(hrp, TweenInfo.new((hrp.Position - target.Position).Magnitude / 100, Enum.EasingStyle.Linear), {CFrame = target.CFrame})
         tween:Play()
         tween.Completed:Wait()
     end
 end
 
-FarmTab:CreateToggle({
-   Name = "Enable Farming (Tween)",
-   CurrentValue = false,
-   Flag = "ItemFarmToggle",
-   Callback = function(Value)
-       _G.ItemFarm = Value
-       if Value then
-           task.spawn(function()
-               while _G.ItemFarm do
-                   local itemFound = false
-                   
-                   local anySelected = false
-                   for _, selected in pairs(_G.SelectedItems) do
-                       if selected then anySelected = true; break end
-                   end
-                   
-                   for _, v in pairs(workspace:GetChildren()) do
-                       if _G.ItemFarm == false then break end
-                       
-                       if v:IsA("MeshPart") or v:IsA("Part") or v:IsA("Model") then
-                           local name = v.Name
-                           local targetPart = v:IsA("Model") and (v:FindFirstChild("Handle") or v:FindFirstChildOfClass("Part") or v:FindFirstChildOfClass("MeshPart")) or v
-                           
-                           local shouldPickup = false
-                           if not anySelected then
-                               if _G.SelectedItems[name] ~= nil then shouldPickup = true end
-                           else
-                               if _G.SelectedItems[name] == true then shouldPickup = true end
-                           end
-                           
-                           if shouldPickup and targetPart then
-                               itemFound = true
-                               local clickDetector = v:FindFirstChildOfClass("ClickDetector") or (v:FindFirstChild("Hitbox") and v.Hitbox:FindFirstChildOfClass("ClickDetector"))
-                               
-                               if not clickDetector and v:IsA("Model") then
-                                   for _, child in pairs(v:GetDescendants()) do
-                                       if child:IsA("ClickDetector") then
-                                           clickDetector = child
-                                           break
-                                       end
-                                   end
-                               end
-                               
-                               if clickDetector then
-                                   tweenTo(targetPart.CFrame * CFrame.new(0, 2, 0))
-                                   task.wait(0.2)
-                                   fireclickdetector(clickDetector)
-                                   task.wait(0.2)
-                               end
-                           end
-                       end
-                   end
-                   if not itemFound then
-                       task.wait(0.5)
-                   end
-               end
-           end)
-       end
-   end,
+FarmTab:CreateDropdown({
+    Name = "Select Item to Farm",
+    Options = ItemList,
+    CurrentOption = {"--"},
+    MultipleOptions = false,
+    Flag = "ItemDropdown",
+    Callback = function(Option)
+        _G.TargetItem = (Option[1] == "--") and nil or Option[1]
+    end,
 })
 
-for itemName, _ in pairs(_G.SelectedItems) do
-    FarmTab:CreateToggle({
-       Name = "Підбирати: " .. itemName,
-       CurrentValue = false,
-       Callback = function(Value)
-           _G.SelectedItems[itemName] = Value
-       end,
-    })
-end
+FarmTab:CreateToggle({
+    Name = "Enable Farming",
+    CurrentValue = false,
+    Callback = function(Value)
+        _G.ItemFarm = Value
+        if Value then
+            task.spawn(function()
+                while _G.ItemFarm do
+                    for _, v in pairs(workspace:GetDescendants()) do
+                        if not _G.ItemFarm then break end
+                        if v:IsA("ClickDetector") and (not _G.TargetItem or v.Parent.Name == _G.TargetItem or (v.Parent.Parent and v.Parent.Parent.Name == _G.TargetItem)) then
+                            local target = v.Parent:IsA("Model") and v.Parent.PrimaryPart or v.Parent
+                            if target:IsA("BasePart") then
+                                tweenTo(target)
+                                fireclickdetector(v)
+                                task.wait(0.5)
+                            end
+                        end
+                    end
+                    task.wait(1)
+                end
+            end)
+        end
+    end,
+})
