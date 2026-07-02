@@ -31,8 +31,6 @@ MainTab:CreateSlider({
 })
 
 _G.ItemFarm = false
-
--- Список предметів
 _G.SelectedItems = {
     ["Ancient Scroll"] = false,
     ["Blue Candy"] = false,
@@ -59,13 +57,19 @@ _G.SelectedItems = {
     ["Zeppeli's Hat"] = false
 }
 
--- Функція плавного переміщення (Tween)
+local Blacklist = {}
+local MaxRetries = 3
+
 local function tweenTo(cframe)
     local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if hrp then
         local distance = (hrp.Position - cframe.Position).Magnitude
+        if distance < 4 then 
+            hrp.CFrame = cframe
+            return 
+        end
         local tweenService = game:GetService("TweenService")
-        local tweenInfo = TweenInfo.new(distance / 60, Enum.EasingStyle.Linear) -- 60 це швидкість польоту
+        local tweenInfo = TweenInfo.new(distance / 75, Enum.EasingStyle.Linear)
         local tween = tweenService:Create(hrp, tweenInfo, {CFrame = cframe})
         tween:Play()
         tween.Completed:Wait()
@@ -83,51 +87,65 @@ FarmTab:CreateToggle({
                while _G.ItemFarm do
                    local itemFound = false
                    
-                   -- Перевіряємо, чи ввімкнено хоча б один предмет
                    local anySelected = false
                    for _, isSelected in pairs(_G.SelectedItems) do
                        if isSelected then anySelected = true; break end
                    end
                    
-                   -- Шукаємо ProximityPrompt (Кнопку E) замість ClickDetector
-                   for _, prompt in pairs(workspace:GetDescendants()) do
+                   -- Шукаємо всі кнопки взаємодії у грі (це дозволяє знайти предмети у будь-яких папках)
+                   for _, desc in pairs(workspace:GetDescendants()) do
                        if not _G.ItemFarm then break end
                        
-                       if prompt:IsA("ProximityPrompt") then
-                           local targetPart = prompt.Parent
-                           local targetModel = targetPart.Parent
-                           local itemName = targetModel and targetModel.Name or targetPart.Name
+                       if desc:IsA("ProximityPrompt") then
+                           local parent1 = desc.Parent
+                           local parent2 = parent1 and parent1.Parent
                            
-                           -- Перевірка імені предмета всередині моделі
-                           if _G.SelectedItems[targetPart.Name] ~= nil then
-                               itemName = targetPart.Name
+                           local itemNode = parent1
+                           local itemName = ""
+                           
+                           -- Визначаємо назву предмета (через текст підказки або назву моделі)
+                           if desc.ObjectText and _G.SelectedItems[desc.ObjectText] ~= nil then
+                               itemName = desc.ObjectText
+                           elseif parent1 and _G.SelectedItems[parent1.Name] ~= nil then
+                               itemName = parent1.Name
+                           elseif parent2 and _G.SelectedItems[parent2.Name] ~= nil then
+                               itemName = parent2.Name
+                               itemNode = parent2
                            end
                            
-                           local shouldPickup = false
-                           if _G.SelectedItems[itemName] ~= nil then
-                               if not anySelected then
-                                   shouldPickup = true -- Якщо нічого не вибрано, беремо все
-                               else
-                                   shouldPickup = _G.SelectedItems[itemName] -- Якщо вибрано, перевіряємо чи увімкнено
+                           -- Якщо знайшли підходящий предмет, який ще не збирали
+                           if itemName ~= "" and itemNode and not Blacklist[itemNode] then
+                               local shouldPickup = not anySelected or _G.SelectedItems[itemName]
+                               
+                               if shouldPickup then
+                                   local targetPart = parent1:IsA("BasePart") and parent1 or itemNode:FindFirstChildWhichIsA("BasePart")
+                                   if targetPart then
+                                       itemFound = true
+                                       local retries = 0
+                                       
+                                       -- Спроба підібрати предмет
+                                       while itemNode.Parent and retries < MaxRetries and _G.ItemFarm do
+                                           tweenTo(targetPart.CFrame * CFrame.new(0, 1.8, 0))
+                                           task.wait(0.2)
+                                           fireproximityprompt(desc)
+                                           task.wait(0.3)
+                                           retries = retries + 1
+                                       end
+                                       
+                                       -- Додаємо в чорний список, щоб не зациклюватися, якщо предмет зник
+                                       if itemNode.Parent then
+                                           Blacklist[itemNode] = true
+                                       end
+                                       task.wait(0.4) -- Безпечна пауза перед наступним предметом
+                                   end
                                end
-                           end
-                           
-                           if shouldPickup and targetPart:IsA("BasePart") then
-                               itemFound = true
-                               
-                               -- Твінимося до предмета (висота +1.5 щоб зручно підняти)
-                               tweenTo(targetPart.CFrame * CFrame.new(0, 1.5, 0))
-                               task.wait(0.2)
-                               
-                               -- Імітуємо затискання кнопки підбору
-                               fireproximityprompt(prompt)
-                               task.wait(0.5)
                            end
                        end
                    end
                    
+                   -- Якщо на мапі наразі немає жодного предмета
                    if not itemFound then
-                       task.wait(0.5) -- Чекаємо, якщо предметів поки немає
+                       task.wait(1.5)
                    end
                end
            end)
@@ -137,12 +155,10 @@ FarmTab:CreateToggle({
 
 FarmTab:CreateLabel("Фільтр предметів (залиш пустим щоб брати все):")
 
--- Сортуємо список предметів за алфавітом, щоб меню виглядало акуратно
 local sortedItems = {}
 for k, _ in pairs(_G.SelectedItems) do table.insert(sortedItems, k) end
 table.sort(sortedItems)
 
--- Створюємо тогли для кожного предмета
 for _, itemName in ipairs(sortedItems) do
     FarmTab:CreateToggle({
        Name = itemName,
